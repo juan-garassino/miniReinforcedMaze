@@ -9,6 +9,7 @@ check_code:
 
 black:
 	@black scripts/* miniReinforcedMaze/*.py
+	@black scripts/* miniReinforcedMaze/*/*.py
 
 test:
 	@coverage run -m pytest tests/*.py
