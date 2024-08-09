@@ -11,6 +11,12 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Input
 from tensorflow.keras.optimizers import Adam
 
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import numpy as np
+from torch.distributions import Categorical
+
 class Player(object):
     """
     Abstract base class for all player types.
@@ -139,26 +145,25 @@ def train_q_player(q_player, maze_size, maze_density, num_mazes, episodes_per_ma
     return q_player
 
 class ImprovedQPlayer:
-    def __init__(self, action_size, learning_rate=0.001, discount_factor=0.95, 
+    def __init__(self, state_size, action_size, learning_rate=0.001, discount_factor=0.95, 
                  exploration_rate=1.0, exploration_decay=0.995):
-        # Our AI hero is born, ready to tackle maze challenges!
         print("🐣 A new AI explorer is born!")
+        self.state_size = state_size
         self.action_size = action_size
         self.learning_rate = learning_rate
         self.discount_factor = discount_factor
         self.exploration_rate = exploration_rate
         self.exploration_decay = exploration_decay
         self.memory = deque(maxlen=2000)
-        self.model = None
+        self.model = self._build_model()
         print(f"🧭 Our hero can perform {action_size} different actions.")
         print(f"🧠 Learning rate: {learning_rate}, Discount factor: {discount_factor}")
         print(f"🎲 Initial exploration rate: {exploration_rate}")
 
-    def _build_model(self, state_size):
-        # Our hero's brain is forming - neural pathways are being created!
+    def _build_model(self):
         print("🧠 Building neural pathways in our hero's brain...")
         model = Sequential([
-            Input(shape=(state_size,)),
+            Input(shape=(self.state_size,)),
             Dense(24, activation='relu'),
             Dense(24, activation='relu'),
             Dense(self.action_size, activation='linear')
@@ -168,40 +173,34 @@ class ImprovedQPlayer:
         return model
 
     def remember(self, state, action, reward, next_state, done):
-        # Our hero is storing a memory of its adventure
         self.memory.append((state, action, reward, next_state, done))
         print("💾 A new memory is stored in our hero's mind.")
 
     def act(self, state):
         print("🤔 Our hero is deciding: explore randomly or use learned knowledge?")
-        if self.model is None:
-            self.model = self._build_model(len(state))
-        
         if np.random.rand() <= self.exploration_rate:
             action = random.randrange(self.action_size)
             print(f"🎲 Exploration wins! Choosing a random action: {action}")
             return action
         else:
-            state = np.reshape(state, [1, -1])
+            state = np.reshape(state, [1, self.state_size])
             q_values = self.model.predict(state, verbose=0)
             action = np.argmax(q_values[0])
             print(f"🧠 Exploitation wins! Choosing the best known action: {action}")
             return action
 
     def move(self, state):
-        # Alias for act method
         return self.act(state)
 
     def replay(self, batch_size):
-        # Our hero is reflecting on past experiences
         print(f"📚 Time for reflection! Reviewing {batch_size} past adventures...")
         minibatch = random.sample(self.memory, batch_size)
         for state, action, reward, next_state, done in minibatch:
             target = reward
             if not done:
-                next_state = np.reshape(next_state, [1, -1])
+                next_state = np.reshape(next_state, [1, self.state_size])
                 target = reward + self.discount_factor * np.amax(self.model.predict(next_state, verbose=0)[0])
-            state = np.reshape(state, [1, -1])
+            state = np.reshape(state, [1, self.state_size])
             target_f = self.model.predict(state, verbose=0)
             target_f[0][action] = target
             self.model.fit(state, target_f, epochs=1, verbose=0)
@@ -210,14 +209,9 @@ class ImprovedQPlayer:
         print(f"🧠 Lessons learned! New exploration rate: {self.exploration_rate:.4f}")
 
     def learn(self, observations):
-        # Our hero is processing a batch of recent experiences
         print("📖 Time to learn from recent adventures!")
         for old_state, action, reward, new_state in observations:
             done = reward == 1.0 or reward == -1.0
-            
-            if self.model is None:
-                self.model = self._build_model(len(old_state))
-            
             self.remember(old_state, action, reward, new_state, done)
         
         if len(self.memory) > 32:
@@ -261,7 +255,16 @@ def train_improved_q_player(
         
         while not done and step < max_steps:
             action = player.act(state)
+            print(f"Step {step + 1}: Our hero decides to move {converted_directions[action]}.")
+            
             next_state, reward, done = env.step(action)
+            
+            if reward > 0:
+                print("🌟 Excellent choice! Our hero found something valuable!")
+            elif reward < 0:
+                print("😖 Oops! That didn't work out well.")
+            else:
+                print("😐 Nothing special happened, but our hero presses on.")
             
             player.remember(state, action, reward, next_state, done)
             
@@ -276,13 +279,14 @@ def train_improved_q_player(
             
             if step % 10 == 0:
                 print(f"Step {step}: Our hero continues its quest, driven by an exploration rate of {player.exploration_rate:.2f}")
-        
-        if done and reward > 0:
-            print("\n🎉 Success! Our AI hero has found the treasure!")
-        elif done:
-            print("\n💀 Oh no! Our AI hero has fallen into a trap. Better luck next time!")
-        else:
-            print("\n⏱️ Time's up! Our hero couldn't find the treasure this time.")
+            
+            if done:
+                if reward > 0:
+                    print("\n🎉 Success! Our AI hero has found the treasure!")
+                else:
+                    print("\n💀 Oh no! Our AI hero has fallen into a trap. Better luck next time!")
+            elif step == max_steps:
+                print("\n⏱️ Time's up! Our hero couldn't find the treasure this time.")
         
         if e % show_every == 0:
             print(f"\n📊 Adventure Summary:")
@@ -318,3 +322,129 @@ def test_agent(env, agent, num_episodes=10, max_steps=500):
             step += 1
         
         print(f"Test Episode: {episode+1}/{num_episodes}, Steps: {step}, Total Reward: {total_reward:.2f}")
+
+class ActorCritic(nn.Module):
+    def __init__(self, state_dim, action_dim):
+        super(ActorCritic, self).__init__()
+        self.actor = nn.Sequential(
+            nn.Linear(state_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, action_dim),
+            nn.Softmax(dim=-1)
+        )
+        self.critic = nn.Sequential(
+            nn.Linear(state_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
+        )
+
+    def forward(self, state):
+        return self.actor(state), self.critic(state)
+
+class PPOPlayer:
+    def __init__(self, state_dim, action_dim, lr=3e-4, gamma=0.99, epsilon=0.2, value_coef=0.5, entropy_coef=0.01):
+        print("🚀 A new PPO hero is born, ready to conquer the maze!")
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"🖥️ Our hero will train on: {self.device}")
+        self.actor_critic = ActorCritic(state_dim, action_dim).to(self.device)
+        self.optimizer = optim.Adam(self.actor_critic.parameters(), lr=lr)
+        self.gamma = gamma
+        self.epsilon = epsilon
+        self.value_coef = value_coef
+        self.entropy_coef = entropy_coef
+        print(f"🧠 Actor-Critic network created with {state_dim} inputs and {action_dim} possible actions")
+        print(f"📊 Learning rate: {lr}, Discount factor: {gamma}, PPO clip: {epsilon}")
+
+    def move(self, state):
+        print("🤔 Our PPO hero is deciding on the next move...")
+        state = torch.FloatTensor(state).to(self.device)
+        action_probs, _ = self.actor_critic(state)
+        dist = Categorical(action_probs)
+        action = dist.sample()
+        print(f"🎲 Chosen action: {action.item()}")
+        return action.item()
+
+    def update(self, states, actions, rewards, next_states, dones):
+        print("🔄 Time to update our hero's knowledge!")
+        states = torch.FloatTensor(states).to(self.device)
+        actions = torch.LongTensor(actions).to(self.device)
+        rewards = torch.FloatTensor(rewards).to(self.device)
+        next_states = torch.FloatTensor(next_states).to(self.device)
+        dones = torch.FloatTensor(dones).to(self.device)
+
+        print("📈 Computing advantages...")
+        _, next_values = self.actor_critic(next_states)
+        _, values = self.actor_critic(states)
+        deltas = rewards + self.gamma * next_values * (1 - dones) - values
+        advantages = self.compute_gae(deltas.detach(), dones)
+
+        print("🔁 Starting PPO update iterations...")
+        for iteration in range(10):  # Number of optimization epochs
+            action_probs, values = self.actor_critic(states)
+            dist = Categorical(action_probs)
+            new_log_probs = dist.log_prob(actions)
+            old_log_probs = dist.log_prob(actions).detach()
+
+            ratio = torch.exp(new_log_probs - old_log_probs)
+            surr1 = ratio * advantages
+            surr2 = torch.clamp(ratio, 1.0 - self.epsilon, 1.0 + self.epsilon) * advantages
+            actor_loss = -torch.min(surr1, surr2).mean()
+
+            critic_loss = nn.MSELoss()(values, rewards + self.gamma * next_values * (1 - dones))
+            entropy = dist.entropy().mean()
+
+            loss = actor_loss + self.value_coef * critic_loss - self.entropy_coef * entropy
+
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+            print(f"    ✅ Iteration {iteration + 1} complete")
+
+        print("🎉 Update complete! Our hero is now wiser.")
+
+    def compute_gae(self, rewards, dones, gamma=0.99, lam=0.95):
+        print("🧮 Computing Generalized Advantage Estimation...")
+        gae = 0
+        returns = []
+        for step in reversed(range(len(rewards))):
+            delta = rewards[step] + gamma * gae * (1 - dones[step]) - gae
+            gae = delta + gamma * lam * (1 - dones[step]) * gae
+            returns.insert(0, gae + rewards[step])
+        return torch.tensor(returns)
+
+def train_ppo_player(player, env, num_episodes, max_steps):
+    print(f"🏋️ Starting training for {num_episodes} episodes, max {max_steps} steps each")
+    for episode in range(num_episodes):
+        state = env.reset()
+        states, actions, rewards, next_states, dones = [], [], [], [], []
+        total_reward = 0
+
+        print(f"\n🌟 Episode {episode + 1} begins!")
+        for step in range(max_steps):
+            action = player.move(state)
+            next_state, reward, done, _ = env.step(action)
+            total_reward += reward
+
+            states.append(state)
+            actions.append(action)
+            rewards.append(reward)
+            next_states.append(next_state)
+            dones.append(done)
+
+            state = next_state
+
+            if done:
+                print(f"🏁 Episode ended after {step + 1} steps")
+                break
+
+        player.update(states, actions, rewards, next_states, dones)
+
+        if episode % 10 == 0:
+            print(f"📊 Episode {episode}, Total Reward: {total_reward:.2f}")
+
+    print("🎓 Training complete! Our PPO hero is ready for action!")
+    return player
