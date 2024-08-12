@@ -1,9 +1,10 @@
+import os
+import torch
 from miniReinforcedMaze.generate.generate_maze import MazeEnvironment
-from miniReinforcedMaze.agent.players import ImprovedQPlayer, train_improved_q_player, test_agent
-from miniReinforcedMaze.params import *
+from miniReinforcedMaze.agent.players import PPOPlayer, train_ppo_player
 from miniReinforcedMaze.agent.simulate import simulate_maze_game, simulate_maze_improve_game
 from miniReinforcedMaze.preprocessing.cropping import crop
-import os
+from miniReinforcedMaze.remove.params import *
 
 def main():
     # Create maze
@@ -28,19 +29,19 @@ def main():
         return_indexes=imagen_indexes,
     )
     
-    # Create Q-player
-    state_size = maze_size * maze_size + len(POSSIBLE_ACTIONS)  # or whatever fixed size you decide on
-    action_size = len(POSSIBLE_ACTIONS)
-    q_player = ImprovedQPlayer(state_size=state_size, action_size=action_size)
+    # Create PPO player
+    state_dim = maze_size * maze_size + len(POSSIBLE_ACTIONS)  # Adjust based on your state representation
+    action_dim = len(POSSIBLE_ACTIONS)
+    ppo_player = PPOPlayer(state_dim, action_dim)
 
-    trained_player = train_improved_q_player(
-        player=q_player,
-        maze_size=(maze_size, maze_size),
-        maze_density=maze_density,
-        episodes=50,
+    # Train PPO player
+    trained_player = train_ppo_player(
+        player=ppo_player,
+        env=maze_env,
+        num_episodes=50,
         max_steps=30,
+        update_interval=10,
         batch_size=32,
-        show_every=1,
         possible_actions=POSSIBLE_ACTIONS,
         converted_directions=CONVERT_DIRECTIONS,
         codes=codes
@@ -49,8 +50,8 @@ def main():
     print("Training completed.")
 
     # Simulate a game with the trained player
-    print("\nSimulating a game with the trained player:")
-    observations, result = simulate_maze_improve_game(
+    print("\nSimulating a game with the trained PPO player:")
+    observations, result = simulate_maze_game(
         maze=maze,
         player=trained_player,
         initial_position=maze_env.initial_position,
@@ -59,7 +60,8 @@ def main():
         codes=codes,
         verbose=True,
         show_gif=True,
-        cropped_images=cropped_images
+        cropped_images=cropped_images,
+        expected_input_shape=(state_dim,)
     )
 
     print(f"\nGame result: {result}")
