@@ -59,3 +59,4 @@ def crop(
         return [images[i] for i in indexes], indexes
     else:
         return images
+
