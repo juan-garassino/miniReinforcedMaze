@@ -58,7 +58,11 @@ def train_improved_q_player(env, player, num_episodes=1000, max_steps=500, show_
             converted_directions=converted_directions,
             codes=codes,
             max_steps=max_steps,
-            verbose=verbose
+            verbose=verbose,
+            # reward_lose=,
+            # reward_repeat=,
+            # reward_step=,
+            # reward_win=,
         )
         
         if episode % 100 == 0:
